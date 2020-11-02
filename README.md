@@ -117,7 +117,7 @@ You can disable or enable the extension at any moment in a session.
 By default the internal savepoint used is `PgSLRAutoSvpt` if you want
 to change the name you can use this GUC. For example:
 
-    SET pg_statement_rollback.enabled TO 'my_new_sp_name';
+    SET pg_statement_rollback.savepoint_name TO 'my_new_sp_name';
 
 then you will have to use `ROLLBACK TO SAVEPOINT my_new_sp_name;`.
 
