@@ -1,0 +1,66 @@
+\set VERBOSITY default
+\set ECHO all
+LOAD 'pg_statement_rollback.so';
+SET pg_statement_rollback.enabled = 1;
+BEGIN;
+CREATE TABLE savepoint_test(id integer);
+INSERT INTO savepoint_test SELECT 1;
+ROLLBACK TO "PgSLRAutoSvpt";
+SELECT COUNT( * ) FROM savepoint_test;
+ count 
+-------
+     1
+(1 row)
+
+INSERT INTO savepoint_test SELECT 1;
+SAVEPOINT useless;
+INSERT INTO savepoint_test SELECT 1;
+SAVEPOINT s1;
+INSERT INTO savepoint_test SELECT 1;
+SELECT COUNT( * ) FROM savepoint_test;
+ count 
+-------
+     4
+(1 row)
+
+INSERT INTO savepoint_test SELECT 'wrong 1';
+ERROR:  invalid input syntax for type integer: "wrong 1"
+LINE 1: INSERT INTO savepoint_test SELECT 'wrong 1';
+                                          ^
+ROLLBACK TO "PgSLRAutoSvpt";
+SELECT COUNT( * ) FROM savepoint_test;
+ count 
+-------
+     4
+(1 row)
+
+INSERT INTO savepoint_test SELECT 'wrong 2';
+ERROR:  invalid input syntax for type integer: "wrong 2"
+LINE 1: INSERT INTO savepoint_test SELECT 'wrong 2';
+                                          ^
+ROLLBACK TO s1;
+SELECT COUNT( * ) FROM savepoint_test;
+ count 
+-------
+     3
+(1 row)
+
+RELEASE badsp;
+ERROR:  savepoint "badsp" does not exist
+ROLLBACK TO "PgSLRAutoSvpt";
+SELECT COUNT( * ) FROM savepoint_test;
+ count 
+-------
+     3
+(1 row)
+
+RELEASE useless;
+INSERT INTO savepoint_test SELECT 1;
+ROLLBACK TO "PgSLRAutoSvpt";
+SELECT COUNT( * ) FROM savepoint_test;
+ count 
+-------
+     4
+(1 row)
+
+ROLLBACK;
