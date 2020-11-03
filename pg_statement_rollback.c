@@ -18,6 +18,7 @@
 #include <nodes/pg_list.h>
 #include <optimizer/planner.h>
 #include <tcop/utility.h>
+#include <utils/elog.h>
 #include <utils/guc.h>
 
 /* Define ProcessUtility hook proto/parameters following the PostgreSQL version */
@@ -60,6 +61,7 @@ static ExecutorRun_hook_type prev_ExecutorRun = NULL;
 static ExecutorEnd_hook_type prev_ExecutorEnd = NULL;
 static ExecutorFinish_hook_type prev_ExecutorFinish = NULL;
 static ProcessUtility_hook_type prev_ProcessUtility = NULL;
+static emit_log_hook_type prev_log_hook = NULL;
 
 /* Functions used with hooks */
 static void slr_ExecutorStart(QueryDesc *queryDesc, int eflags);
@@ -77,6 +79,7 @@ static void slr_ExecutorRun(QueryDesc *queryDesc, ScanDirection direction,
 static void slr_ExecutorFinish(QueryDesc *queryDesc);
 static void slr_ProcessUtility(SLR_PROCESSUTILITY_PROTO);
 static PlannedStmt* slr_planner(SLR_PLANNERHOOK_PROTO);
+static void disable_differed_slr(ErrorData *edata);
 
 /* Functions */
 void	_PG_init(void);
@@ -125,6 +128,8 @@ _PG_init(void)
 	ExecutorFinish_hook = slr_ExecutorFinish;
 	prev_ProcessUtility = ProcessUtility_hook;
 	ProcessUtility_hook = slr_ProcessUtility;
+	prev_log_hook = emit_log_hook;
+	emit_log_hook = disable_differed_slr;
 
 	/*
 	 * Automatic savepoint
@@ -188,6 +193,7 @@ _PG_fini(void)
 	ExecutorFinish_hook = prev_ExecutorFinish;
 	ExecutorEnd_hook = prev_ExecutorEnd;
 	ProcessUtility_hook = prev_ProcessUtility;
+	emit_log_hook = prev_log_hook;
 
 }
 
@@ -800,4 +806,15 @@ slr_is_write_query(QueryDesc *queryDesc)
 	return false;
 }
 
+static void
+disable_differed_slr(ErrorData *edata)
+{
+	/* Do not ask for automatic savepoint if previous statement has an error */
+	if (edata->elevel >= ERROR)
+		slr_defered_save_resowner = false;
+
+	/* Continue chain to previous hook */
+	if (prev_log_hook)
+		(*prev_log_hook) (edata);
+}
 

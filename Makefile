@@ -20,7 +20,8 @@ TESTS        = 01_slr_basic  \
 	       02_slr_release \
 	       03_slr_cursor \
 	       04_slr_log_writeonly \
-	       05_slr_write_cte
+	       05_slr_write_cte \
+	       06_slr_do_block
 
 REGRESS      = $(patsubst test/sql/%.sql,%,$(TESTS))
 REGRESS_OPTS = --inputdir=test

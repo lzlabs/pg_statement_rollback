@@ -1,0 +1,79 @@
+-- Test rollback at statement level with nested write statements from a function
+LOAD 'pg_statement_rollback.so';
+SET pg_statement_rollback.enabled TO on;
+SET pg_statement_rollback.savepoint_name TO 'aze';
+SET pg_statement_rollback.enable_writeonly TO on;
+DROP SCHEMA IF EXISTS testrsl CASCADE;
+NOTICE:  schema "testrsl" does not exist, skipping
+CREATE SCHEMA testrsl;
+SET search_path TO testrsl,public;
+SET log_min_duration_statement TO -1;
+SET log_statement TO 'all';
+SET log_duration TO off;
+SET client_min_messages TO LOG;
+CREATE FUNCTION test_insert_fail() RETURNS integer AS $$
+BEGIN
+    INSERT INTO tbl_rsl VALUES (2, 'two');
+    INSERT INTO tbl_rsl VALUES ('three', 3);
+    RETURN 1;
+END
+$$ LANGUAGE plpgsql;
+LOG:  statement: CREATE FUNCTION test_insert_fail() RETURNS integer AS $$
+BEGIN
+    INSERT INTO tbl_rsl VALUES (2, 'two');
+    INSERT INTO tbl_rsl VALUES ('three', 3);
+    RETURN 1;
+END
+$$ LANGUAGE plpgsql;
+\echo Test internal automatic savepoint with a failing DO block
+Test internal automatic savepoint with a failing DO block
+BEGIN;
+LOG:  statement: BEGIN;
+LOG:  statement: SAVEPOINT aze; /* automatic savepoint */
+DROP TABLE IF EXISTS tbl_rsl;
+LOG:  statement: DROP TABLE IF EXISTS tbl_rsl;
+NOTICE:  table "tbl_rsl" does not exist, skipping
+LOG:  statement: RELEASE aze; /* automatic savepoint */
+LOG:  statement: SAVEPOINT aze; /* automatic savepoint */
+CREATE TABLE tbl_rsl(id integer, val varchar(256));
+LOG:  statement: CREATE TABLE tbl_rsl(id integer, val varchar(256));
+LOG:  statement: RELEASE aze; /* automatic savepoint */
+LOG:  statement: SAVEPOINT aze; /* automatic savepoint */
+INSERT INTO tbl_rsl VALUES (1, 'one');
+LOG:  statement: INSERT INTO tbl_rsl VALUES (1, 'one');
+LOG:  statement: RELEASE aze; /* automatic savepoint */
+LOG:  statement: SAVEPOINT aze; /* automatic savepoint */
+DO $$
+BEGIN
+        PERFORM test_insert_fail();
+END $$;
+LOG:  statement: DO $$
+BEGIN
+        PERFORM test_insert_fail();
+END $$;
+ERROR:  invalid input syntax for type integer: "three"
+LINE 1: INSERT INTO tbl_rsl VALUES ('three', 3)
+                                    ^
+QUERY:  INSERT INTO tbl_rsl VALUES ('three', 3)
+CONTEXT:  PL/pgSQL function test_insert_fail() line 4 at SQL statement
+SQL statement "SELECT test_insert_fail()"
+PL/pgSQL function inline_code_block line 3 at PERFORM
+ROLLBACK TO SAVEPOINT aze;
+LOG:  statement: ROLLBACK TO SAVEPOINT aze;
+DELETE FROM tbl_rsl WHERE id = 1;
+LOG:  statement: DELETE FROM tbl_rsl WHERE id = 1;
+LOG:  statement: RELEASE aze; /* automatic savepoint */
+LOG:  statement: SAVEPOINT aze; /* automatic savepoint */
+SELECT * FROM tbl_rsl; -- Should show 0 record
+LOG:  statement: SELECT * FROM tbl_rsl;
+ id | val 
+----+-----
+(0 rows)
+
+COMMIT;
+LOG:  statement: COMMIT;
+DROP SCHEMA testrsl CASCADE;
+LOG:  statement: DROP SCHEMA testrsl CASCADE;
+NOTICE:  drop cascades to 2 other objects
+DETAIL:  drop cascades to function test_insert_fail()
+drop cascades to table tbl_rsl
