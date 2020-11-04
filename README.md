@@ -173,7 +173,7 @@ See files in test/sql/ for some examples of use.
 When `log_min_duration_statement` is set to 0 the automatic savepoint
 is always traced in the PostgreSQL log file with an arbitrary 0.01ms
 which can correspond to a mean of their execution time. If necessary
-the real timing could be add in the future.
+the real timing could be added in the future.
 
 To see the real overhead of loading the extension here is some pgbench
 in tpcb-like scenario, best of three runs.
