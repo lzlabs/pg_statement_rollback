@@ -121,6 +121,8 @@ to change the name you can use this GUC. For example:
 
 then you will have to use `ROLLBACK TO SAVEPOINT my_new_sp_name;`.
 
+This parameter can only be set by a superuser.
+
 - *pg_statement_rollback.enable_writeonly*
 
 By default the extension do not issue automatic savepoints after SELECT
