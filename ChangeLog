@@ -1,3 +1,14 @@
+Version 1.1 - Mon Nov 12 2020
+
+This maintenance release fix the unhandled case of a writing function
+throwing error that was cause a major failure. 
+
+  - Add a note to documentation that pg_statement_rollback.savepoint_name
+    can only be set by a superuser.
+  - Fix example on pg_statement_rollback.savepoint_name use in the
+    documentation. Thanks to Guillaume Lelarge for the report.
+
+
 Version 1.0 - Mon Nov 02 2020
 
   - Initial official release
