@@ -1,4 +1,4 @@
-Version 1.1 - Mon Nov 12 2020
+Version 1.1 - Thu Nov 12 2020
 
 This maintenance release fix the unhandled case of a writing function
 throwing error that was cause a major failure. 
