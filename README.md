@@ -4,8 +4,8 @@
 * [Installation](#installation)
 * [Configuration](#configuration)
 * [Use of the extension](#use-of-the-extension)
-* [Performances](performances)
-* [Problems](problems)
+* [Performances](#performances)
+* [Problems](#problems)
 * [Authors](#authors)
 * [License](#license)
 
