@@ -4,14 +4,14 @@ PGFILEDESC = "pg_statement_rollback - Automatic rollback at statement level for 
 
 PG_CONFIG = pg_config
 
-# Test that we can install a bgworker, PG >= 9.4
-PG94 = $(shell $(PG_CONFIG) --version | egrep " 8\.| 9\.[0-3]" > /dev/null && echo no || echo yes)
+# Test that version >= 9.5
+PG95 = $(shell $(PG_CONFIG) --version | egrep " 8\.| 9\.[0-4]" > /dev/null && echo no || echo yes)
 PG_CPPFLAGS = -I$(libpq_srcdir)
 PG_LDFLAGS = -L$(libpq_builddir) -lpq
 
 SHLIB_LINK = $(libpq)
 
-ifeq ($(PG94),yes)
+ifeq ($(PG95),yes)
 
 DOCS = $(wildcard README*)
 MODULES = pg_statement_rollback
@@ -27,7 +27,7 @@ REGRESS      = $(patsubst test/sql/%.sql,%,$(TESTS))
 REGRESS_OPTS = --inputdir=test
 
 else
-	$(error Minimum version of PostgreSQL required is 9.4.0)
+	$(error Minimum version of PostgreSQL required is 9.5.0)
 endif
 
 PGXS := $(shell $(PG_CONFIG) --pgxs)

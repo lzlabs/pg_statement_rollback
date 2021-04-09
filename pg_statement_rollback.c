@@ -12,14 +12,19 @@
  */
 #include "postgres.h"
 
-#include <access/xact.h>
-#include <commands/portalcmds.h>
-#include <executor/executor.h>
-#include <nodes/pg_list.h>
-#include <optimizer/planner.h>
-#include <tcop/utility.h>
-#include <utils/elog.h>
-#include <utils/guc.h>
+#include "access/parallel.h"
+#include "access/xact.h"
+#include "commands/portalcmds.h"
+#include "executor/executor.h"
+#include "nodes/pg_list.h"
+#include "optimizer/planner.h"
+#include "tcop/utility.h"
+#include "utils/elog.h"
+#include "utils/guc.h"
+#if PG_VERSION_NUM < 110000
+#include "nodes/makefuncs.h"
+#include "utils/memutils.h"
+#endif
 
 /* Define ProcessUtility hook proto/parameters following the PostgreSQL version */
 #if PG_VERSION_NUM >= 130000
@@ -53,6 +58,10 @@
 #endif
 
 PG_MODULE_MAGIC;
+
+#if PG_VERSION_NUM >= 90500
+#define IN_PARALLEL_WORKER (ParallelWorkerNumber >= 0)
+#endif
 
 /* Variables to saved hook values in case of unload */
 static planner_hook_type prev_planner_hook = NULL;
@@ -241,7 +250,11 @@ slr_ProcessUtility(SLR_PROCESSUTILITY_PROTO)
 	bool add_savepoint = false;
 
 	/* SPI calls are internal */
-	if (dest->mydest == DestSPI)
+	if (dest->mydest == DestSPI
+#if PG_VERSION_NUM >= 90500
+			|| IN_PARALLEL_WORKER
+#endif
+		)
 	{
 		/* do nothing */
 	}
@@ -252,6 +265,10 @@ slr_ProcessUtility(SLR_PROCESSUTILITY_PROTO)
 	else if (IsA(parsetree, TransactionStmt))
 	{
 		TransactionStmt *stmt = (TransactionStmt *) parsetree;
+		char       *name = NULL;
+#if PG_VERSION_NUM < 110000
+		ListCell   *cell;
+#endif
 
 		/* detect if we are in a transaction or not */
 		switch (stmt->kind)
@@ -312,8 +329,19 @@ slr_ProcessUtility(SLR_PROCESSUTILITY_PROTO)
 				* We will not issue the SAVEPOINT if the client is using the
 				* same SAVEPOINT name as our automatic SAVEPOINT/
 				*/
-				if (slr_enabled && stmt->savepoint_name != NULL &&
-						strcmp(stmt->savepoint_name, slr_savepoint_name) != 0)
+#if PG_VERSION_NUM >= 110000
+				name = pstrdup(stmt->savepoint_name);
+#else
+				foreach(cell, stmt->options)
+				{
+					DefElem    *elem = lfirst(cell);
+
+					if (strcmp(elem->defname, "savepoint_name") == 0)
+						name = strVal(elem->arg);
+				}
+#endif
+				if (slr_enabled && name != NULL &&
+						strcmp(name, slr_savepoint_name) != 0)
 					add_savepoint = true;
 				break;
 			case TRANS_STMT_RELEASE:
@@ -379,7 +407,11 @@ slr_ProcessUtility(SLR_PROCESSUTILITY_PROTO)
 	PG_END_TRY();
 
 	/* SPI calls are internal */
-	if (dest->mydest == DestSPI)
+	if (dest->mydest == DestSPI
+#if PG_VERSION_NUM >= 90500
+			|| IN_PARALLEL_WORKER
+#endif
+			)
 	{
 		/* do nothing and get out */
 		return;
@@ -465,6 +497,11 @@ slr_ExecutorStart(QueryDesc *queryDesc, int eflags)
 		prev_ExecutorStart(queryDesc, eflags);
 	else
 		standard_ExecutorStart(queryDesc, eflags);
+
+#if PG_VERSION_NUM >= 90500
+	if IN_PARALLEL_WORKER
+		return;
+#endif
 
 	/*
 	 * Only handle savepoints for top level executor that's not spawned by the
@@ -588,10 +625,15 @@ slr_ExecutorEnd(QueryDesc *queryDesc)
 	 */
 	elog( DEBUG1, "RSL: ExecutorEnd (slr_nest_executor_level %d, slr_planner_done %d, operation %d).",
 			slr_nest_executor_level, slr_planner_done, queryDesc->operation);
-	if (slr_enabled && slr_nest_executor_level == 0 && slr_planner_done &&
-			(!slr_enable_writeonly ||
-			 slr_defered_save_resowner ||
-			 slr_is_write_query(queryDesc) 
+
+	if (
+#if PG_VERSION_NUM >= 90500
+		!IN_PARALLEL_WORKER &&
+#endif
+		slr_enabled && slr_nest_executor_level == 0 && slr_planner_done && (
+				!slr_enable_writeonly ||
+			 	slr_defered_save_resowner ||
+			 	slr_is_write_query(queryDesc) 
 			 )
 		)
 	{
