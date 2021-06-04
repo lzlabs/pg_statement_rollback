@@ -1,10 +1,23 @@
+Version 1.2 - Fri Jun 04 2021
+
+This maintenance release fixes portability issues on different
+PostgreSQL version as well as taking care of parallelism.
+
+  - Check for minimum pg version in the C code instead of
+    Makefile [Author: Gilles Darold]
+  - Prevent automatic savepoint to be created/released in
+    a parallel worker. [Author: Dave Sharpe]
+  - Fix port to PostgreSQL versions before v11.0 and v14.
+    [Author: Gilles Darold]
+  - Fix links in documentation menu. [Author: Gilles Darold]
+
 Version 1.1 - Thu Nov 12 2020
 
-This maintenance release fix the unhandled case of a writing function
-throwing error that was cause a major failure. 
+This maintenance release fixes the unhandled case of a writing
+function throwing error that was cause a major failure. 
 
   - Add a note to documentation that pg_statement_rollback.savepoint_name
-    can only be set by a superuser.
+    can only be set by a superuser. [Author: Gilles Darold]
   - Fix example on pg_statement_rollback.savepoint_name use in the
     documentation. Thanks to Guillaume Lelarge for the report.
 
