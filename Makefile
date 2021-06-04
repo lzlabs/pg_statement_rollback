@@ -4,14 +4,10 @@ PGFILEDESC = "pg_statement_rollback - Automatic rollback at statement level for 
 
 PG_CONFIG = pg_config
 
-# Test that version >= 9.5
-PG95 = $(shell $(PG_CONFIG) --version | egrep " 8\.| 9\.[0-4]" > /dev/null && echo no || echo yes)
 PG_CPPFLAGS = -I$(libpq_srcdir)
 PG_LDFLAGS = -L$(libpq_builddir) -lpq
 
 SHLIB_LINK = $(libpq)
-
-ifeq ($(PG95),yes)
 
 DOCS = $(wildcard README*)
 MODULES = pg_statement_rollback
@@ -25,10 +21,6 @@ TESTS        = 01_slr_basic  \
 
 REGRESS      = $(patsubst test/sql/%.sql,%,$(TESTS))
 REGRESS_OPTS = --inputdir=test
-
-else
-	$(error Minimum version of PostgreSQL required is 9.5.0)
-endif
 
 PGXS := $(shell $(PG_CONFIG) --pgxs)
 include $(PGXS)
