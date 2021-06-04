@@ -26,6 +26,10 @@
 #include "utils/memutils.h"
 #endif
 
+#if PG_VERSION_NUM < 90500
+#error Minimum version of PostgreSQL required is 9.5
+#endif
+
 /* Define ProcessUtility hook proto/parameters following the PostgreSQL version */
 #if PG_VERSION_NUM >= 130000
 #define SLR_PROCESSUTILITY_PROTO PlannedStmt *pstmt, const char *queryString, \
