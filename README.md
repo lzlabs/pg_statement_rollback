@@ -302,5 +302,5 @@ INSERT INTO savepoint_test SELECT 1; -- crash
 This extension is free software distributed under the PostgreSQL
 License.
 
-    Copyright (c) 2020 LzLabs, GmbH
+    Copyright (c) 2020-2021 LzLabs, GmbH
 
