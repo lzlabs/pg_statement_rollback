@@ -1,3 +1,10 @@
+Version 1.3 - Fri Oct 22 2021
+
+This maintenance release fixes portability issues on latest
+PostgreSQL version.
+
+  - Add support to PostgreSQL 14. [Author: Gilles Darold]
+
 Version 1.2 - Fri Jun 04 2021
 
 This maintenance release fixes portability issues on different
