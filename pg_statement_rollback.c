@@ -31,6 +31,16 @@
 #endif
 
 /* Define ProcessUtility hook proto/parameters following the PostgreSQL version */
+#if PG_VERSION_NUM >= 140000
+#define SLR_PROCESSUTILITY_PROTO PlannedStmt *pstmt, const char *queryString, \
+                                       bool readOnlyTree, \
+                                        ProcessUtilityContext context, ParamListInfo params, \
+                                        QueryEnvironment *queryEnv, DestReceiver *dest, \
+                                        QueryCompletion *qc
+#define SLR_PROCESSUTILITY_ARGS pstmt, queryString, readOnlyTree, context, params, queryEnv, dest, qc
+#define SLR_PLANNERHOOK_PROTO Query *parse, const char *query_string, int cursorOptions, ParamListInfo boundParams
+#define SLR_PLANNERHOOK_ARGS parse, query_string, cursorOptions, boundParams
+#else
 #if PG_VERSION_NUM >= 130000
 #define SLR_PROCESSUTILITY_PROTO PlannedStmt *pstmt, const char *queryString, \
 					ProcessUtilityContext context, ParamListInfo params, \
@@ -58,6 +68,7 @@
                                         ParamListInfo params, bool isTopLevel, \
 					DestReceiver *dest, char *completionTag
 #define SLR_PROCESSUTILITY_ARGS parsetree, queryString, params, isTopLevel, dest, completionTag
+#endif
 #endif
 #endif
 
