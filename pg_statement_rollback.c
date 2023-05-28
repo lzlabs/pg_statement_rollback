@@ -115,6 +115,10 @@ void    slr_release_savepoint(void);
 static void slr_log(const char *kind);
 bool slr_is_write_query(QueryDesc *queryDesc);
 
+#if PG_VERSION_NUM >= 160000
+RTEPermissionInfo *localGetRTEPermissionInfo(List *rteperminfos, RangeTblEntry *rte);
+#endif
+
 /* Global variables for automatic savepoint */
 char    *slr_savepoint_name = "pg_statement_rollback";
 bool    slr_enabled        = true;
@@ -854,8 +858,17 @@ slr_is_write_query(QueryDesc *queryDesc)
 		if (rte->rtekind != RTE_RELATION)
 			continue;
 
+#if PG_VERSION_NUM < 160000
 		if ((rte->requiredPerms & (~ACL_SELECT)) == 0)
 			continue;
+#else
+		if (rte->perminfoindex != 0)
+		{
+			RTEPermissionInfo *perminfo = localGetRTEPermissionInfo(queryDesc->estate->es_rteperminfos, rte);
+			if ((perminfo->requiredPerms & (~ACL_SELECT)) == 0)
+				continue;
+		}
+#endif
 
 		return true;
 	}
@@ -875,3 +888,29 @@ disable_differed_slr(ErrorData *edata)
 		(*prev_log_hook) (edata);
 }
 
+#if PG_VERSION_NUM >= 160000
+/*
+ * getRTEPermissionInfo
+ *              Find RTEPermissionInfo for a given relation in the provided list.
+ *
+ * This is a simple list_nth() operation, though it's good to have the
+ * function for the various sanity checks.
+ */
+RTEPermissionInfo *
+localGetRTEPermissionInfo(List *rteperminfos, RangeTblEntry *rte)
+{
+	RTEPermissionInfo *perminfo;
+
+	if (rte->perminfoindex == 0 ||
+		rte->perminfoindex > list_length(rteperminfos))
+		elog(ERROR, "invalid perminfoindex %u in RTE with relid %u",
+			 rte->perminfoindex, rte->relid);
+	perminfo = list_nth_node(RTEPermissionInfo, rteperminfos,
+							 rte->perminfoindex - 1);
+	if (perminfo->relid != rte->relid)
+		elog(ERROR, "permission info at index %u (with relid=%u) does not match provided RTE (with relid=%u)",
+			 rte->perminfoindex, perminfo->relid, rte->relid);
+
+	return perminfo;
+}
+#endif
