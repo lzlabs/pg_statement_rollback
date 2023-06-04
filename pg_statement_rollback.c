@@ -6,7 +6,7 @@
  *
  * Authors: Julien Rouhaud, Dave Sharpe, Gilles Darold 
  * Licence: PostgreSQL
- * Copyright (c) 2020-2021 LzLabs, GmbH
+ * Copyright (c) 2020-2023 LzLabs, GmbH
  *
  *-------------------------------------------------------------------------
  */
