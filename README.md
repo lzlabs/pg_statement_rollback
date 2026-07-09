@@ -5,7 +5,6 @@
 * [Configuration](#configuration)
 * [Use of the extension](#use-of-the-extension)
 * [Performances](#performances)
-* [Problems](#problems)
 * [Authors](#authors)
 * [License](#license)
 
@@ -233,62 +232,6 @@ Actually the pgbench scenario used here is not useful to test the interest
 of limiting savepoint to write statements only. A special script should
 be built with more than 64 (PGPROC_MAX_CACHED_SUBXIDS) statements in a
 transaction to start playing with bottlenecks.
-
-### [Problems](#problems)
-
-When compiled with assert enabled (`--enable-cassert`) PostgreSQL will crash
-when the extension is used. At line 1327 of ./src/backend/tcop/pquery.c the
-following assert fail:
-
-```
-/*
- * Clear subsidiary contexts to recover temporary memory.
- */
-Assert(portal->portalContext == CurrentMemoryContext);
-```
-
-Actually with the extension the memory context is not CurrentMemoryContext
-as expected.
-
-```
-(gdb) b pquery.c:1327
-Breakpoint 1 at 0x55792fd7a04d: file pquery.c, line 1327.
-(gdb) c
-Continuing.
-
-Breakpoint 1, PortalRunMulti (portal=portal@entry=0x5579316e3e10, isTopLevel=isTopLevel@entry=true, 
-    setHoldSnapshot=setHoldSnapshot@entry=false, dest=dest@entry=0x557931755ce8, altdest=altdest@entry=0x557931755ce8, 
-    qc=qc@entry=0x7ffc4aa1f8a0) at pquery.c:1327
-1327			Assert(portal->portalContext == CurrentMemoryContext);
-(gdb) p portal->sourceText
-$1 = 0x557931679c80 "INSERT INTO savepoint_test SELECT 1;"
-(gdb) p MemoryContextStats(portal->portalContext)
-$2 = void
-(gdb) 
-```
-The memory context dump output
-```
-PortalContext: 1024 total in 1 blocks; 704 free (1 chunks); 320 used: <unnamed>
-Grand total: 1024 bytes in 1 blocks; 704 free (1 chunks); 320 used
-```
-
-Clearly the assert in pquery.c doesn't allow our particular use for server side
-statement-level rollback, PostgreSQL code should probably be modified because
-we don't have possibilities to fix that at the extension level.
-
-Here how to reproduce the crash:
-
-```
-SELECT pg_backend_pid();
-LOAD 'pg_statement_rollback.so';
-SET pg_statement_rollback.enabled = 1;
-SET client_min_messages TO LOG;
-SET log_statement TO 'all';
-BEGIN;
-CREATE TABLE savepoint_test(id integer);
--- run gdb on pid displayed above then => b pquery.c:1327
-INSERT INTO savepoint_test SELECT 1; -- crash
-```
 
 ### [Authors](#authors)
 
