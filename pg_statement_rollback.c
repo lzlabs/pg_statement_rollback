@@ -720,6 +720,35 @@ slr_ExecutorEnd(QueryDesc *queryDesc)
 
 		slr_defered_save_resowner = false;
 	}
+	else if (
+#if PG_VERSION_NUM >= 90500
+		!IN_PARALLEL_WORKER &&
+#endif
+		slr_nest_executor_level == 0 && oldresowner != NULL)
+	{
+		/*
+		 * slr_ExecutorStart() saved the resource owner and portal context
+		 * for every top-level statement, but the branch above only consumes
+		 * them (through slr_add_savepoint()) for statements that actually
+		 * get an automatic savepoint -- with the default
+		 * pg_statement_rollback.enable_writeonly = on, that means write
+		 * statements only.  For a read-only statement (plain SELECT) the
+		 * saved values would otherwise be orphaned here and the next call
+		 * to slr_save_resowner() -- e.g. from the next DML, or from
+		 * ProcessUtility for a client SAVEPOINT -- would trip
+		 * Assert(oldresowner == NULL) on a --enable-cassert build and
+		 * abort the backend.  A stale slrPortalContext is also dangerous
+		 * on any build, since it points at this statement's portal
+		 * context, which is destroyed once the portal is dropped.
+		 *
+		 * Nothing was modified: slr_save_resowner() only reads
+		 * CurrentResourceOwner and PortalContext, so discarding the
+		 * stashed values is all that is needed.
+		 */
+		elog(DEBUG1, "RSL: ExecutorEnd discarding unused saved resource owner (read-only statement).");
+		oldresowner = NULL;
+		slrPortalContext = NULL;
+	}
 
 	if (prev_ExecutorEnd)
 		prev_ExecutorEnd(queryDesc);
@@ -781,8 +810,34 @@ slr_add_savepoint(void)
 	if (slr_enabled && slr_xact_opened)
 	{
 		MemoryContextCallback *slr_cb = NULL;
+		MemoryContext oldcontext = CurrentMemoryContext;
 
 		elog(DEBUG1, "RSL: adding savepoint %s.", slr_savepoint_name);
+
+		/*
+		 * PostgreSQL 18+ snapshots CurrentMemoryContext into the new
+		 * subtransaction's priorContext at AtSubStart_Memory() time, and
+		 * AtSubCleanup_Memory() switches back to it when the
+		 * subtransaction is cleaned up after an abort (error followed by
+		 * ROLLBACK TO).  We are called with a per-portal memory context
+		 * current, and that portal (and its context) dies at the end of
+		 * the current statement -- long before our automatic savepoint's
+		 * subtransaction does.  If the subtransaction is later aborted
+		 * and cleaned up, core would switch CurrentMemoryContext to the
+		 * freed portal context: undefined behavior on any build, and on
+		 * --enable-cassert builds it manifests as
+		 * Assert(context != CurrentMemoryContext) failing in mcxt.c when
+		 * the recycled pointer collides with a context being deleted.
+		 *
+		 * Create the subtransaction with the (parent's) transaction-
+		 * lifetime CurTransactionContext current instead, so that
+		 * priorContext refers to a context that is guaranteed to outlive
+		 * the subtransaction.  This matches what AtSubCleanup_Memory()
+		 * switched to implicitly on PostgreSQL 17 and older
+		 * (s->parent->curTransactionContext).  The portal context is
+		 * restored below, after the savepoint machinery has run.
+		 */
+		MemoryContextSwitchTo(CurTransactionContext);
 
 		/* Define savepoint */
 		DefineSavepoint(slr_savepoint_name);
@@ -790,6 +845,19 @@ slr_add_savepoint(void)
 		CommitTransactionCommand();
 		elog(DEBUG1, "RSL: CommandCounterIncrement.");
 		CommandCounterIncrement();
+
+		/*
+		 * DefineSavepoint()/CommitTransactionCommand() start and commit a
+		 * subtransaction, which as a side effect switches
+		 * CurrentMemoryContext away from the portal's own context (to
+		 * CurTransactionContext).  We must switch it back before returning,
+		 * otherwise PortalRunMulti()'s cleanup will later find
+		 * portal->portalContext != CurrentMemoryContext and, on a
+		 * --enable-cassert build, trip
+		 * Assert(portal->portalContext == CurrentMemoryContext) in
+		 * pquery.c, crashing the backend.
+		 */
+		MemoryContextSwitchTo(oldcontext);
 
 		/*
 		 * Backup the new resowner, will be restore the end of execution on the
@@ -832,6 +900,7 @@ slr_release_savepoint(void)
 
 	if (slr_enabled && slr_xact_opened && slr_pending)
 	{
+		MemoryContext oldcontext = CurrentMemoryContext;
 #if PG_VERSION_NUM < 110000
 		List       *options = NIL;
 		DefElem    *elem = NULL;
@@ -853,6 +922,17 @@ slr_release_savepoint(void)
 #endif
 		CommitTransactionCommand();
 		CommandCounterIncrement();
+
+		/*
+		 * As in slr_add_savepoint(), ReleaseSavepoint()/CommitTransactionCommand()
+		 * leaves CurrentMemoryContext pointing at CurTransactionContext
+		 * instead of the portal's own context.  Restore it here too: this
+		 * function can be called on its own (e.g. right before "SET
+		 * TRANSACTION ...") without a following slr_add_savepoint() call to
+		 * paper over the drift, so it must not leave CurrentMemoryContext
+		 * corrupted itself.
+		 */
+		MemoryContextSwitchTo(oldcontext);
 
 		slr_pending = false;
 
@@ -938,7 +1018,39 @@ disable_differed_slr(ErrorData *edata)
 {
 	/* Do not ask for automatic savepoint if previous statement has an error */
 	if (edata->elevel >= ERROR)
+	{
 		slr_defered_save_resowner = false;
+
+		/*
+		 * If slr_save_resowner() ran for the statement that is now
+		 * erroring out (in ExecutorStart, or in ProcessUtility before
+		 * executing the utility command), the matching slr_add_savepoint()
+		 * that would normally consume and clear oldresowner/slrPortalContext
+		 * never gets to run: the executor/utility call never reaches its
+		 * normal completion path on error, it just unwinds via PG_CATCH.
+		 *
+		 * The (sub)transaction state those variables refer to is about to
+		 * be torn down by the error abort machinery, so they must not
+		 * survive past this point:
+		 *
+		 * - oldresowner: if left set, the next slr_save_resowner() call
+		 *   (for the next statement) trips
+		 *   Assert(oldresowner == NULL) on a --enable-cassert build, and
+		 *   crashes the backend.
+		 *
+		 * - slrPortalContext: if left set, it may point at a portal
+		 *   context already destroyed by the abort, and a later
+		 *   slr_add_savepoint() would allocate into it / register a reset
+		 *   callback on freed memory.
+		 *
+		 * CurrentResourceOwner itself was never modified by
+		 * slr_save_resowner() (it only reads it), so there is nothing to
+		 * restore here -- simply forgetting the stashed values is
+		 * sufficient and correct.
+		 */
+		oldresowner = NULL;
+		slrPortalContext = NULL;
+	}
 
 	/* Continue chain to previous hook */
 	if (prev_log_hook)
